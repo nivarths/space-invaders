@@ -73,6 +73,16 @@ int player_move_dir = 1; // initializing the player movement to right
 bool game_running = false; // global variable to check if game is running
 int move_dir = 0; // variable to indicate movement direction
 bool fire_pressed = false; // variable to indicate if the projectile was fired
+size_t score = 0; // variable to track score
+int alien_move_dir = 1; // initializing player movement to right
+bool alien_needs_drop = false; // trigger to drop alien when the edge of the board is hit
+size_t alien_move_counter = 0; // timer to slow movement
+bool game_over = false; // trigger for text that says "GAME OVER" to appear 
+bool awaiting_restart = false;
+
+Game game;
+SpriteAnimation* alien_animations[3]; // index 0 = TYPE_A, 1 = TYPE_B, 2 = TYPE_C
+uint8_t* death_counter = nullptr;
 
 // FUNCTION PROTOTYPES
 void error_callback(int error, const char* description); // error callback that prints error description
@@ -83,6 +93,9 @@ bool validate_program(GLuint program);
 void buffer_sprite_draw(Buffer* buffer, const Sprite& sprite, size_t x, size_t y, uint32_t colour); // function to draw sprite pixels at specified coordinates
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 bool sprite_overlap_check(const Sprite& sp_a, size_t x_a, size_t y_a, const Sprite& sp_b, size_t x_b, size_t y_b);
+void buffer_draw_text(Buffer* buffer, const Sprite& text_spritesheet, const char* text, size_t x, size_t y, uint32_t colour);
+void buffer_draw_number(Buffer* buffer, const Sprite& number_spritesheet, size_t number, size_t x, size_t y, uint32_t colour);
+void reset_game(Game& game, uint8_t* death_counter);
 
 // vertex shader
 const char* vertex_shader =
@@ -332,6 +345,88 @@ int main()
         1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
     };
 
+    // text spreadsheet sprite
+    Sprite text_spritesheet;
+    text_spritesheet.width = 5;
+    text_spritesheet.height = 7;
+    text_spritesheet.data = new uint8_t[65 * 35]
+    {
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,1,0,1,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,1,0,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,1,1,1,1,1,0,1,0,1,0,0,1,0,1,0,
+        0,0,1,0,0,0,1,1,1,0,1,0,1,0,0,0,1,1,1,0,0,0,1,0,1,0,1,1,1,0,0,0,1,0,0,
+        1,1,0,1,0,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,0,1,0,1,1,
+        0,1,1,0,0,1,0,0,1,0,1,0,0,1,0,0,1,1,0,0,1,0,0,1,0,1,0,0,0,1,0,1,1,1,1,
+        0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
+        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
+        0,0,1,0,0,1,0,1,0,1,0,1,1,1,0,0,0,1,0,0,0,1,1,1,0,1,0,1,0,1,0,0,1,0,0,
+        0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,
+
+        0,1,1,1,0,1,0,0,0,1,1,0,0,1,1,1,0,1,0,1,1,1,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,0,0,1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,0,1,1,1,1,1,0,0,0,1,0,0,0,0,1,0,
+        1,1,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,0,1,1,1,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+
+        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0,0,
+        0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,
+        0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,
+        1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,1,0,1,1,1,0,1,1,1,0,1,0,0,1,0,0,0,1,0,1,1,1,0,
+
+        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,
+        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,1,0,1,1,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,1,1,1,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
+        0,1,1,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,1,1,1,0,
+        0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,1,0,1,0,1,0,0,1,1,0,0,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
+        1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,1,1,1,1,
+        1,0,0,0,1,1,1,0,1,1,1,0,1,0,1,1,0,1,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,1,1,0,0,1,1,0,1,0,1,1,0,0,1,1,1,0,0,0,1,1,0,0,0,1,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,0,1,1,0,1,1,1,1,
+        1,1,1,1,0,1,0,0,0,1,1,0,0,0,1,1,1,1,1,0,1,0,1,0,0,1,0,0,1,0,1,0,0,0,1,
+        0,1,1,1,0,1,0,0,0,1,1,0,0,0,0,0,1,1,1,0,1,0,0,0,1,0,0,0,0,1,0,1,1,1,0,
+        1,1,1,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,1,1,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,
+        1,0,0,0,1,1,0,0,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1,0,1,1,1,0,1,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,0,0,0,1,
+        1,0,0,0,1,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,
+        1,1,1,1,1,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,1,1,1,1,
+
+        0,0,0,1,1,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,1,
+        0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1,0,
+        1,1,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,1,1,0,0,0,
+        0,0,1,0,0,0,1,0,1,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,
+        0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    };
+
+    // number sprite
+    Sprite number_spritesheet = text_spritesheet;
+    number_spritesheet.data += 16 * 35;
+
+    // bullet sprite
     Sprite bullet_sprite;
     bullet_sprite.width = 1;
     bullet_sprite.height = 3;
@@ -359,16 +454,15 @@ int main()
     
 
     // initializing game struct
-    Game game;
     game.width = buffer_width;
     game.height = buffer_height;
     game.num_aliens = 55;
     game.aliens = new Alien[game.num_aliens];
 
-    uint8_t* death_counters = new uint8_t[game.num_aliens];
+    death_counter = new uint8_t[game.num_aliens];
     for(size_t i = 0; i < game.num_aliens; ++i)
     {
-        death_counters[i] = 10;
+        death_counter[i] = 10;
     }
 
     game.player.x = 112 - 5;
@@ -428,94 +522,216 @@ int main()
     while(!glfwWindowShouldClose(window) && game_running)
     {
         glClear(GL_COLOR_BUFFER_BIT);
-        
         buffer_clear(&buffer, clear_colour); // clear buffer each frame
 
-        // Draw all aliens
-        for(size_t ai = 0; ai < game.num_aliens; ++ai)
+        // UI drawing
+        buffer_draw_text(&buffer, text_spritesheet, "SCORE", 4, game.height - text_spritesheet.height - 7, rgb_to_uint32(128, 0, 0));
+        buffer_draw_number(&buffer, number_spritesheet, score, 4 + 2 * number_spritesheet.width, game.height - 2 * number_spritesheet.height - 12, rgb_to_uint32(128, 0, 0));
+        buffer_draw_text(&buffer, text_spritesheet, "CREDIT 00", 164, 7, rgb_to_uint32(128, 0, 0));
+        for(size_t i = 0; i < game.width; ++i)
         {
-            if(!death_counters[ai])
-            {
-                continue;
-            }
+            buffer.data[game.width * 16 + i] = rgb_to_uint32(128, 0, 0);
+        }
 
-            const Alien& alien = game.aliens[ai];
+        if(!game_over)
+        {
+            // alien movement logic
+            alien_move_counter++;
+            if(alien_move_counter >= 15)
+            {
+                alien_move_counter = 0;
 
-            if(alien.type == ALIEN_DEAD)
-            {
-                buffer_sprite_draw(&buffer, alien_death_sprite, alien.x, alien.y, rgb_to_uint32(128, 0, 0));
-            }
-            else
-            {
-                const SpriteAnimation& animation = *alien_animations[alien.type - 1];
-                size_t current_frame = animation.time / animation.frame_duration;
-                const Sprite& sprite = *animation.frames[current_frame];
-                buffer_sprite_draw(&buffer, sprite, alien.x, alien.y, rgb_to_uint32(128, 0, 0));
+                // edge collision check
+                bool edge_hit = false;
+                for(size_t ai = 0; ai < game.num_aliens; ++ai)
+                {
+                    const Alien& alien = game.aliens[ai];
+                    if(alien.type == ALIEN_DEAD)
+                    {
+                        continue;
+                    }
+
+                    size_t alien_right = alien.x + 12; // approximate alien width
+                    if((alien_move_dir == 1 && alien_right > game.width - 10) || (alien_move_dir == -1 && alien.x < 10))
+                    {
+                        edge_hit = true;
+                        break;
+                    }
+                }
+
+                if(edge_hit)
+                {
+                    alien_move_dir *= -1;
+                    alien_needs_drop = true;
+                }
+
+                for(size_t ai = 0; ai < game.num_aliens; ++ai)
+                {
+                    Alien& alien = game.aliens[ai];
+                    if(alien.type == ALIEN_DEAD)
+                    {
+                        continue;
+                    }
+
+                    if(alien_needs_drop)
+                    {
+                        alien.y -= 8;
+                    }
+                    else
+                    {
+                        alien.x += alien_move_dir * 4;
+                    }
+                }
+
+                for(size_t ai = 0; ai < game.num_aliens; ++ai)
+                {
+                    const Alien& alien = game.aliens[ai];
+                    if(alien.type != ALIEN_DEAD)
+                    {
+                        if(alien.y <= game.player.y + player_sprite.height)
+                        {
+                            game_over = true;
+                            double freeze_start_time = glfwGetTime();
+                            while(glfwGetTime() - freeze_start_time < 5.0)
+                            {
+                                buffer_clear(&buffer, clear_colour);
+                                
+                                buffer_draw_text(&buffer, text_spritesheet, "SCORE", 4, game.height - text_spritesheet.height - 7, rgb_to_uint32(128, 0, 0));
+                                buffer_draw_number(&buffer, number_spritesheet, score, 4 + 2 * number_spritesheet.width, game.height - 2 * number_spritesheet.height - 12, rgb_to_uint32(128, 0, 0));
+                                buffer_draw_text(&buffer, text_spritesheet, "CREDIT 00", 164, 7, rgb_to_uint32(128, 0, 0));
+                                
+                                for(size_t i = 0; i < game.width; ++i)
+                                {
+                                    buffer.data[game.width * 16 + i] = rgb_to_uint32(128, 0, 0);
+                                }
+                                
+                                const char* message = "GAME OVER";
+                                size_t message_width = 9 * (text_spritesheet.width + 1);
+                                size_t x = (buffer.width - message_width) / 2;
+                                size_t y = buffer.height / 2 - text_spritesheet.height / 2;
+                                buffer_draw_text(&buffer, text_spritesheet, message, x, y, rgb_to_uint32(255, 255, 255));
+
+                                glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer.width, buffer.height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, buffer.data);
+                                glDrawArrays(GL_TRIANGLES, 0, 3);
+                                glfwSwapBuffers(window);
+                                glfwPollEvents();
+                            }
+
+                            break;
+                        }
+                    }
+                    
+                }
+
+                alien_needs_drop = false;
             }
         }
 
-        for(size_t ai = 0; ai < game.num_aliens; ++ai)
+        if(!game_over || !awaiting_restart)
         {
-            const Alien& alien = game.aliens[ai];
-            if(alien.type == ALIEN_DEAD && death_counters[ai])
+            // Draw all aliens
+            for(size_t ai = 0; ai < game.num_aliens; ++ai)
             {
-                --death_counters[ai];
-            }
-        }
+                if(!death_counter[ai])
+                {
+                    continue;
+                }
 
-        buffer_sprite_draw(&buffer, player_sprite, game.player.x, game.player.y, rgb_to_uint32(128, 0, 0));
+                const Alien& alien = game.aliens[ai];
 
-        // draw bullets
-        for(size_t bi = 0; bi < game.num_bullets; ++bi)
-        {
-            const Bullet& bullet = game.bullets[bi];
-            const Sprite& sprite = bullet_sprite;
-            buffer_sprite_draw(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(128, 0, 0));
-        }
-
-        // bullet movement
-        for(size_t bi = 0; bi < game.num_bullets;)
-        {
-            game.bullets[bi].y += game.bullets[bi].dir;
-
-            // out of bounds check
-            if(game.bullets[bi].y >= game.height || game.bullets[bi].y < bullet_sprite.height)
-            {
-                game.bullets[bi] = game.bullets[game.num_bullets - 1];
-                --game.num_bullets;
-                continue;
+                if(alien.type == ALIEN_DEAD)
+                {
+                    buffer_sprite_draw(&buffer, alien_death_sprite, alien.x, alien.y, rgb_to_uint32(128, 0, 0));
+                }
+                else
+                {
+                    const SpriteAnimation& animation = *alien_animations[alien.type - 1];
+                    size_t current_frame = animation.time / animation.frame_duration;
+                    const Sprite& sprite = *animation.frames[current_frame];
+                    buffer_sprite_draw(&buffer, sprite, alien.x, alien.y, rgb_to_uint32(128, 0, 0));
+                }
             }
 
-            // checking collision with aliens
-            bool hit = false;
             for(size_t ai = 0; ai < game.num_aliens; ++ai)
             {
                 const Alien& alien = game.aliens[ai];
-                if(alien.type == ALIEN_DEAD)
+                if(alien.type == ALIEN_DEAD && death_counter[ai])
                 {
-                    continue;
+                    --death_counter[ai];
                 }
+            }
 
-                const SpriteAnimation& animation = *alien_animations[alien.type - 1];
-                size_t current_frame = animation.time / animation.frame_duration;
-                const Sprite& alien_sprite = *animation.frames[current_frame];
-                bool overlap = sprite_overlap_check(bullet_sprite, game.bullets[bi].x, game.bullets[bi].y, alien_sprite, alien.x, alien.y);
+            buffer_sprite_draw(&buffer, player_sprite, game.player.x, game.player.y, rgb_to_uint32(128, 0, 0));
 
-                if(overlap)
+            // draw bullets
+            for(size_t bi = 0; bi < game.num_bullets; ++bi)
+            {
+                const Bullet& bullet = game.bullets[bi];
+                const Sprite& sprite = bullet_sprite;
+                buffer_sprite_draw(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(128, 0, 0));
+            }
+
+            // bullet movement
+            for(size_t bi = 0; bi < game.num_bullets;)
+            {
+                game.bullets[bi].y += game.bullets[bi].dir;
+
+                // out of bounds check
+                if(game.bullets[bi].y >= game.height || game.bullets[bi].y < bullet_sprite.height)
                 {
-                    game.aliens[ai].type = ALIEN_DEAD;
-                    game.aliens[ai].x -= (alien_death_sprite.width - alien_sprite.width) / 2;
                     game.bullets[bi] = game.bullets[game.num_bullets - 1];
                     --game.num_bullets;
-                    hit = true;
                     continue;
                 }
-            }
 
-            if(!hit)
-            {
-                ++bi;
+                // checking collision with aliens
+                bool hit = false;
+                for(size_t ai = 0; ai < game.num_aliens; ++ai)
+                {
+                    const Alien& alien = game.aliens[ai];
+                    if(alien.type == ALIEN_DEAD)
+                    {
+                        continue;
+                    }
+
+                    const SpriteAnimation& animation = *alien_animations[alien.type - 1];
+                    size_t current_frame = animation.time / animation.frame_duration;
+                    const Sprite& alien_sprite = *animation.frames[current_frame];
+                    bool overlap = sprite_overlap_check(bullet_sprite, game.bullets[bi].x, game.bullets[bi].y, alien_sprite, alien.x, alien.y);
+
+                    if(overlap)
+                    {
+                        score += 10 * (4 - game.aliens[ai].type);
+                        game.aliens[ai].type = ALIEN_DEAD;
+                        game.aliens[ai].x -= (alien_death_sprite.width - alien_sprite.width) / 2;
+                        game.bullets[bi] = game.bullets[game.num_bullets - 1];
+                        --game.num_bullets;
+                        hit = true;
+                        continue;
+                    }
+                }
+
+                if(!hit)
+                {
+                    ++bi;
+                }
             }
+        }
+        // game over conditions
+        if(game_over)
+        {
+            const char* message = "GAME OVER";
+            size_t message_width = 9 * (text_spritesheet.width + 1);
+            size_t x = (buffer.width - message_width) / 2;
+            size_t y = buffer.height / 2 - text_spritesheet.height / 2;
+            buffer_draw_text(&buffer, text_spritesheet, message, x, y, rgb_to_uint32(255, 255, 255));
+
+            const char* restart_prompt = "PRESS R TO RESTART";
+            size_t restart_prompt_width = 18 * (text_spritesheet.width + 1);
+            size_t px = (buffer.width - restart_prompt_width) / 2;
+            size_t py = y - 2 * text_spritesheet.height;
+            buffer_draw_text(&buffer, text_spritesheet, restart_prompt, px, py, rgb_to_uint32(255, 255, 255));
+            awaiting_restart = true;
         }
 
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer.width, buffer.height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, buffer.data);
@@ -691,6 +907,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 fire_pressed = true;
             }
             break;
+        case GLFW_KEY_R:
+            if(action == GLFW_PRESS && game_over)
+            {
+                awaiting_restart = false;
+                reset_game(game, death_counter);
+            }
+            break;
         default:
             break;
     }
@@ -704,4 +927,93 @@ bool sprite_overlap_check(const Sprite& sp_a, size_t x_a, size_t y_a, const Spri
     }
 
     return false;
+}
+
+void buffer_draw_text(Buffer* buffer, const Sprite& text_spritesheet, const char* text, size_t x, size_t y, uint32_t colour)
+{
+    size_t xp = x;
+    size_t stride = text_spritesheet.width * text_spritesheet.height;
+    Sprite sprite = text_spritesheet;
+    for(const char* charp = text; *charp != '\0'; ++charp)
+    {
+        char character = *charp - 32;
+        if(character < 0 || character >= 65)
+        {
+            continue;
+        }
+
+        sprite.data = text_spritesheet.data + character * stride;
+        buffer_sprite_draw(buffer, sprite, xp, y, colour);
+        xp += sprite.width + 1;
+    }
+}
+
+void buffer_draw_number(Buffer* buffer, const Sprite& number_spritesheet, size_t number, size_t x, size_t y, uint32_t colour)
+{
+    uint8_t digits[64];
+    size_t num_digits = 0;
+    size_t current_number = number;
+
+    do
+    {
+        digits[num_digits++] = current_number % 10;
+        current_number = current_number / 10;
+    } while (current_number > 0);
+
+    size_t xp = x;
+    size_t stride = number_spritesheet.width * number_spritesheet.height;
+    Sprite sprite = number_spritesheet;
+    
+    for(size_t i = 0; i < num_digits; ++i)
+    {
+        uint8_t digit = digits[num_digits - i - 1];
+        sprite.data = number_spritesheet.data + digit * stride;
+        buffer_sprite_draw(buffer, sprite, xp, y, colour);
+        xp += sprite.width + 1;
+    }
+}
+
+void reset_game(Game& game, uint8_t* death_counter)
+{
+    score = 0;
+    game_over = false;
+    move_dir = 0;
+    fire_pressed = false;
+    alien_move_dir = 1;
+    alien_needs_drop = false;
+    alien_move_counter = 0;
+    game.num_bullets = 0;
+
+    game.player.x = 112 - 5;
+    game.player.y = 32;
+    game.player.life = 3;
+
+    for(size_t i = 0; i < game.num_aliens; ++i)
+    {
+        death_counter[i] = 10;
+
+        size_t xi = i % 11;
+        size_t yi = i / 11;
+        game.aliens[i].x = 16 * xi + 20;
+        game.aliens[i].y = 17 * yi + 128;
+
+        if(yi == 0)
+        {
+            game.aliens[i].type = ALIEN_TYPE_C;
+        }
+        else if(yi < 3)
+        {
+            game.aliens[i].type = ALIEN_TYPE_B;
+        }
+        else
+        {
+            game.aliens[i].type = ALIEN_TYPE_A;
+        }
+
+    }
+
+    for(int i = 0; i < 3; ++i)
+    {
+        alien_animations[i]->time - 0;
+    }
 }
