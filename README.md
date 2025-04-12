@@ -10,8 +10,8 @@ Currently implemented:
 - UI: Score, lives, "GAME OVER", restart prompt
 - Input: Movement, fire (space), restart (R), quit (Esc)
 - Reset logic: Clean restart with reset_game() function
+- Levels with increasing difficulty
 
 Need to implement:
-- Levels with increasing difficulty
 - Main menu screen
 - High score tracker
