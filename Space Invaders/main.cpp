@@ -2,6 +2,11 @@
 #include <GLFW/glfw3.h>
 #include <cstdio>
 #include <cstdint>
+#include <vector>
+#include <cstdlib>
+#include <iostream>
+#include <ctime>
+
 
 // Pre-processor constants
 #define GAME_MAX_BULLETS 128
@@ -52,9 +57,12 @@ struct Game // struct for the game with the width and height of the area, number
     size_t width, height;
     size_t num_aliens;
     size_t num_bullets;
+    size_t num_alien_bullets;
+    size_t level;
     Alien* aliens;
     Player player;
     Bullet bullets[GAME_MAX_BULLETS];
+    Bullet alien_bullets[GAME_MAX_BULLETS];
 };
 
 struct SpriteAnimation // struct to hold information about the sprite animation
@@ -69,6 +77,7 @@ struct SpriteAnimation // struct to hold information about the sprite animation
 // Global Variables
 const size_t buffer_width = 224; // width of the buffer game display
 const size_t buffer_height = 256; // height of the buffer game display
+Sprite player_sprite;
 int player_move_dir = 1; // initializing the player movement to right
 bool game_running = false; // global variable to check if game is running
 int move_dir = 0; // variable to indicate movement direction
@@ -78,7 +87,13 @@ int alien_move_dir = 1; // initializing player movement to right
 bool alien_needs_drop = false; // trigger to drop alien when the edge of the board is hit
 size_t alien_move_counter = 0; // timer to slow movement
 bool game_over = false; // trigger for text that says "GAME OVER" to appear 
-bool awaiting_restart = false;
+bool awaiting_restart = false; // variable to check if the game is waiting for restart prompt to pop up
+double last_alien_fire_time;
+size_t previous_life = 5;
+int heart_fade_timer = 0;
+bool just_reset = false;
+bool level_transition = false;
+double transition_time = 0.0;
 
 Game game;
 SpriteAnimation* alien_animations[3]; // index 0 = TYPE_A, 1 = TYPE_B, 2 = TYPE_C
@@ -184,7 +199,7 @@ int main()
         {
             GLuint shader_vp = glCreateShader(GL_VERTEX_SHADER);
 
-            glShaderSource(shader_vp, 1, &vertex_shader, 0);
+            glShaderSource(shader_vp, 1, &vertex_shader, nullptr);
             glCompileShader(shader_vp);
             validate_shader(shader_vp, vertex_shader);
             glAttachShader(shader_id, shader_vp);
@@ -221,12 +236,12 @@ int main()
     glUniform1i(location, 0);
 
     // create and upload buffer
-    uint32_t clear_colour = rgb_to_uint32(0, 128, 0);
+    const uint32_t colour_background = rgb_to_uint32(0, 128, 0);
     // Buffer buffer;
     buffer.width = buffer_width;
     buffer.height = buffer_height;
     buffer.data = new uint32_t[buffer.width * buffer.height];
-    buffer_clear(&buffer, clear_colour);
+    buffer_clear(&buffer, colour_background);
 
     // sprite creation code
 
@@ -331,7 +346,6 @@ int main()
         0,1,0,0,1,0,0,0,1,0,0,1,0  // .@..@...@..@.
     };
     // player sprite
-    Sprite player_sprite;
     player_sprite.width = 11;
     player_sprite.height = 7;
     player_sprite.data = new uint8_t[77]
@@ -343,6 +357,19 @@ int main()
         1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
         1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
         1,1,1,1,1,1,1,1,1,1,1, // @@@@@@@@@@@
+    };
+
+    // heart sprite
+    Sprite heart_sprite;
+    heart_sprite.width = 5;
+    heart_sprite.height = 5;
+    heart_sprite.data = new uint8_t[25]
+    {
+        0,1,0,1,0,  // .@.@.
+        1,1,1,1,1,  // @@@@@
+        1,1,1,1,1,  // @@@@@
+        0,1,1,1,0,  // .@@@.
+        0,0,1,0,0   // ..@..
     };
 
     // text spreadsheet sprite
@@ -438,7 +465,6 @@ int main()
     };
 
     // animation for the alien sprites
-    SpriteAnimation* alien_animations[3]; // index 0 = TYPE_A, 1 = TYPE_B, 2 = TYPE_C
 
     for(int i = 0; i < 3; ++i)
     {
@@ -465,10 +491,14 @@ int main()
         death_counter[i] = 10;
     }
 
-    game.player.x = 112 - 5;
+    const size_t player_start_x = buffer_width / 2 - player_sprite.width / 2;
+    game.player.x = player_start_x;
     game.player.y = 32;
-    game.player.life = 3;
+    game.player.life = 5;
+    previous_life = game.player.life;
+    game.level = 1;
     game.num_bullets = 0;
+    game.num_alien_bullets = 0;
 
     // code to initialize alien positions
     for(size_t yi = 0; yi < 5; ++yi)
@@ -517,16 +547,127 @@ int main()
 
     // GAME LOOP
 
-    glClearColor(1.0, 0.0, 0.0, 1.0);\
+    glClearColor(1.0, 0.0, 0.0, 1.0);
     game_running = true;
     while(!glfwWindowShouldClose(window) && game_running)
     {
-        glClear(GL_COLOR_BUFFER_BIT);
-        buffer_clear(&buffer, clear_colour); // clear buffer each frame
+        double now = glfwGetTime();
 
-        // UI drawing
+        if(level_transition)
+        {
+            double now = glfwGetTime();
+            double elapsed = now - transition_time;
+            
+            buffer_clear(&buffer, colour_background);
+
+            const char* transition_message = "LEVEL";
+            size_t transition_message_x = (buffer.width - 5 * (text_spritesheet.width + 1)) / 2;
+            size_t transition_message_y = buffer.height / 2 + text_spritesheet.height;
+            buffer_draw_text(&buffer, text_spritesheet, transition_message, transition_message_x, transition_message_y, rgb_to_uint32(255, 255, 255));
+            
+            char level_text[8];
+            snprintf(level_text, sizeof(level_text), "%zu", game.level + 1);
+            size_t num_x = (buffer.width - number_spritesheet.width) / 2;
+            size_t num_y = transition_message_y - 2 * text_spritesheet.height;
+            buffer_draw_number(&buffer, number_spritesheet, game.level + 1, num_x, num_y, rgb_to_uint32(255, 255, 255));
+
+            if(elapsed >= 3.0)
+            {
+                ++game.level;
+                alien_move_counter = 0;
+                last_alien_fire_time = glfwGetTime();
+
+                for(int anim_i = 0; anim_i < 3; ++anim_i)
+                {
+                    alien_animations[anim_i]->time = 0;
+                }
+
+                for(size_t i = 0; i < game.num_aliens; ++i)
+                {
+                    death_counter[i] = 10;
+
+                    size_t xi = i % 11;
+                    size_t yi = i / 11;
+                    game.aliens[i].x = 16 * xi + 20;
+                    game.aliens[i].y = 17 * yi + 128;
+
+                    if(yi == 0)
+                    {
+                        game.aliens[i].type = ALIEN_TYPE_C;
+                    }
+                    else if(yi < 3)
+                    {
+                        game.aliens[i].type = ALIEN_TYPE_B;
+                    }
+                    else
+                    {
+                        game.aliens[i].type = ALIEN_TYPE_A;
+                    }
+                }
+
+                level_transition = false;
+            }
+
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, buffer.width, buffer.height, GL_RGBA, GL_UNSIGNED_INT_8_8_8_8, buffer.data);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+            continue;
+        }
+        
+        if(game.player.life < previous_life)
+        {
+            heart_fade_timer = 30;
+        }
+        previous_life = game.player.life;
+
+        glClear(GL_COLOR_BUFFER_BIT);
+        buffer_clear(&buffer, colour_background); // clear buffer each frame
+
+        // UI DRAWING //
         buffer_draw_text(&buffer, text_spritesheet, "SCORE", 4, game.height - text_spritesheet.height - 7, rgb_to_uint32(128, 0, 0));
         buffer_draw_number(&buffer, number_spritesheet, score, 4 + 2 * number_spritesheet.width, game.height - 2 * number_spritesheet.height - 12, rgb_to_uint32(128, 0, 0));
+
+        // Drawing lives and hearts
+        const char* lives_label = "LIVES";
+        const size_t lives_label_len = 5;
+        const size_t char_width = text_spritesheet.width;
+        const size_t char_spacing = 1;
+        const size_t label_width = lives_label_len * (char_width + char_spacing) - char_spacing;
+        const size_t lives_label_x = (buffer.width - label_width) / 2;
+        const size_t label_y = game.height - text_spritesheet.height - 7;
+        buffer_draw_text(&buffer, text_spritesheet, lives_label, lives_label_x, label_y, rgb_to_uint32(128, 0, 0));
+        
+        const size_t heart_spacing = 2;
+        size_t total_heart_width = game.player.life * heart_sprite.width + (game.player.life - 1) * heart_spacing;
+        size_t heart_start_x = (buffer.width - total_heart_width) / 2;
+        size_t heart_y = label_y - heart_sprite.height - 2;
+        for(size_t i = 0; i < game.player.life; ++i)
+        {
+            size_t x = heart_start_x + i * (heart_sprite.width + heart_spacing);
+            buffer_sprite_draw(&buffer, heart_sprite, x, heart_y, rgb_to_uint32(255, 0, 0));
+        }
+
+        // drawing level and level number
+        const char* level_label = "LEVEL";
+        const size_t level_x = buffer.width - 5 * (text_spritesheet.width + 1) - 20;
+        const size_t level_y = game.height - text_spritesheet.height - 7;
+        buffer_draw_text(&buffer, text_spritesheet, level_label, level_x, level_y, rgb_to_uint32(128, 0, 0));
+
+        size_t level_number_x = level_x + 5 * (text_spritesheet.width + 1) + 4;
+        buffer_draw_number(&buffer, number_spritesheet, game.level, level_number_x, level_y, rgb_to_uint32(128, 0, 0));
+
+        if(heart_fade_timer > 0 && game.player.life < 5)
+        {
+            if((heart_fade_timer / 5) % 2 == 0)
+            {
+                const size_t ghost_x = heart_start_x + game.player.life * (heart_sprite.width + heart_spacing);
+                buffer_sprite_draw(&buffer, heart_sprite, ghost_x, heart_y, rgb_to_uint32(100, 100, 100));
+            }
+
+            --heart_fade_timer;
+        }
+
         buffer_draw_text(&buffer, text_spritesheet, "CREDIT 00", 164, 7, rgb_to_uint32(128, 0, 0));
         for(size_t i = 0; i < game.width; ++i)
         {
@@ -537,7 +678,10 @@ int main()
         {
             // alien movement logic
             alien_move_counter++;
-            if(alien_move_counter >= 15)
+            int raw_speed = 15 - static_cast<int>(game.level * 2);
+            size_t alien_speed = static_cast<size_t>(std::max(3, raw_speed));
+
+            if(alien_move_counter >= alien_speed)
             {
                 alien_move_counter = 0;
 
@@ -594,7 +738,7 @@ int main()
                             double freeze_start_time = glfwGetTime();
                             while(glfwGetTime() - freeze_start_time < 5.0)
                             {
-                                buffer_clear(&buffer, clear_colour);
+                                buffer_clear(&buffer, colour_background);
                                 
                                 buffer_draw_text(&buffer, text_spritesheet, "SCORE", 4, game.height - text_spritesheet.height - 7, rgb_to_uint32(128, 0, 0));
                                 buffer_draw_number(&buffer, number_spritesheet, score, 4 + 2 * number_spritesheet.width, game.height - 2 * number_spritesheet.height - 12, rgb_to_uint32(128, 0, 0));
@@ -624,6 +768,35 @@ int main()
                 }
 
                 alien_needs_drop = false;
+            }
+
+            // alien bullet firing logic
+            srand(static_cast<unsigned int>(std::time(NULL)));
+            double current_time = glfwGetTime();
+            double alien_fire_interval = std::max(0.2, 1.0 - game.level * 0.1);
+            if(current_time - last_alien_fire_time >= alien_fire_interval && game.num_alien_bullets < GAME_MAX_BULLETS)
+            {
+                std::vector<size_t> alive_indices;
+                for(size_t i = 0; i < game.num_aliens; ++i)
+                {
+                    if(game.aliens[i].type != ALIEN_DEAD)
+                    {
+                        alive_indices.push_back(i);
+                    }
+                }
+
+                if(!alive_indices.empty())
+                {
+                    size_t random_index = alive_indices[rand() % alive_indices.size()];
+                    const Alien& shooter = game.aliens[random_index];
+
+                    game.alien_bullets[game.num_alien_bullets].x = shooter.x + 4;
+                    game.alien_bullets[game.num_alien_bullets].y = shooter.y;
+                    game.alien_bullets[game.num_alien_bullets].dir = -2;
+                    ++game.num_alien_bullets;
+
+                    last_alien_fire_time = current_time;
+                }
             }
         }
 
@@ -671,6 +844,14 @@ int main()
                 buffer_sprite_draw(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(128, 0, 0));
             }
 
+            // draw alien bullets
+            for(size_t bi = 0; bi < game.num_alien_bullets; ++bi)
+            {
+                const Bullet& bullet = game.alien_bullets[bi];
+                const Sprite& sprite = bullet_sprite;
+                buffer_sprite_draw(&buffer, sprite, bullet.x, bullet.y, rgb_to_uint32(255, 255, 255));
+            }
+
             // bullet movement
             for(size_t bi = 0; bi < game.num_bullets;)
             {
@@ -715,6 +896,57 @@ int main()
                 {
                     ++bi;
                 }
+            }
+
+            // alien bullet movement (with player collision)
+            for(size_t bi = 0; bi < game.num_alien_bullets;)
+            {
+                game.alien_bullets[bi].y += game.alien_bullets[bi].dir;
+
+                // out of bounds check
+                if(game.alien_bullets[bi].y < bullet_sprite.height)
+                {
+                    game.alien_bullets[bi] = game.alien_bullets[game.num_alien_bullets - 1];
+                    --game.num_alien_bullets;
+                    continue;
+                }
+
+                // player collision
+                if(sprite_overlap_check(bullet_sprite, game.alien_bullets[bi].x, game.alien_bullets[bi].y, player_sprite, game.player.x, game.player.y))
+                {
+                    if(game.player.life > 0)
+                    {
+                        --game.player.life;
+                    }
+
+                    if(game.player.life == 0)
+                    {
+                        game_over = true;
+                    }
+
+                    game.alien_bullets[bi] = game.alien_bullets[game.num_alien_bullets - 1];
+                    --game.num_alien_bullets;
+                    continue;
+                }
+
+                ++bi;
+            }
+
+            // check if all aliens are dead
+            bool all_aliens_dead = true;
+            for(size_t ai = 0; ai < game.num_aliens; ++ai)
+            {
+                if(game.aliens[ai].type != ALIEN_DEAD)
+                {
+                    all_aliens_dead = false;
+                    break;
+                }
+            }
+
+            if(all_aliens_dead && !just_reset && !level_transition)
+            {
+                level_transition = true;
+                transition_time = glfwGetTime();
             }
         }
         // game over conditions
@@ -784,6 +1016,8 @@ int main()
             ++game.num_bullets;
         }
         fire_pressed = false;
+        // reset flag so level can increment from 1 when game restarts
+        just_reset = false;
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -795,8 +1029,14 @@ int main()
     {
         delete[] alien_sprites[i].data;
     }
+    delete[] heart_sprite.data;
     delete[] game.aliens;
     delete[] player_sprite.data;
+    for(int i = 0; i < 3; ++i)
+    {
+        delete[] alien_animations[i]->frames;
+        delete alien_animations[i];
+    }
     glfwDestroyWindow(window);
 
     // END OF MAIN
@@ -982,11 +1222,17 @@ void reset_game(Game& game, uint8_t* death_counter)
     alien_move_dir = 1;
     alien_needs_drop = false;
     alien_move_counter = 0;
+    awaiting_restart = false;
+    game_running = true;
+    last_alien_fire_time = glfwGetTime();
     game.num_bullets = 0;
-
-    game.player.x = 112 - 5;
+    game.num_alien_bullets = 0;
+    const size_t player_start_x = buffer_width / 2 - player_sprite.width / 2;
+    game.player.x = player_start_x;
     game.player.y = 32;
-    game.player.life = 3;
+    game.player.life = 5;
+    game.level = 1;
+    just_reset = true;
 
     for(size_t i = 0; i < game.num_aliens; ++i)
     {
@@ -1014,6 +1260,6 @@ void reset_game(Game& game, uint8_t* death_counter)
 
     for(int i = 0; i < 3; ++i)
     {
-        alien_animations[i]->time - 0;
+        alien_animations[i]->time = 0;
     }
 }
