@@ -1,5 +1,5 @@
 # space-invaders
-[IN PROGRESS] A retro-style Space Invaders clone built from scratch using C++, OpenGL (GLFW + GLEW)
+[IN PROGRESS] A retro-style Space Invaders clone built from scratch using C++ and OOD principles, OpenGL (GLFW + GLEW)
 
 Currently implemented:
 - Rendering: OpenGL + pixel buffer, sprites, shaders
@@ -11,7 +11,10 @@ Currently implemented:
 - Input: Movement, fire (space), restart (R), quit (Esc)
 - Reset logic: Clean restart with reset_game() function
 - Levels with increasing difficulty
+- Main menu screen
+- Pause feature
+- OOD Principles through classes for major features
 
 Need to implement:
-- Main menu screen
 - High score tracker
+- Power-ups
