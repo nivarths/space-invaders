@@ -1,5 +1,5 @@
 # space-invaders
-[IN PROGRESS] A retro-style Space Invaders clone built from scratch using C++ and OOD principles, OpenGL (GLFW + GLEW)
+[IN PROGRESS] A retro-style Space Invaders clone built from scratch using C++ and OOD principles and OpenGL (GLFW + GLEW)
 
 Currently implemented:
 - Rendering: OpenGL + pixel buffer, sprites, shaders
