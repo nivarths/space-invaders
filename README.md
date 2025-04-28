@@ -1,6 +1,8 @@
 # space-invaders
 [IN PROGRESS] A retro-style Space Invaders clone built from scratch using C++ and OOD principles and OpenGL (GLFW + GLEW)
 
+![Screenshot 2025-04-22 194557](https://github.com/user-attachments/assets/40358b2a-d8c7-4bfb-a26f-c5fc55cf9b6c)
+
 Currently implemented:
 - Rendering: OpenGL + pixel buffer, sprites, shaders
 - Player: Movement, shooting, sprite drawing, lives system (hit detection, game over on death)
@@ -18,3 +20,5 @@ Currently implemented:
 Need to implement:
 - High score tracker
 - Power-ups
+![Screenshot 2025-04-22 194705](https://github.com/user-attachments/assets/d2a6c9a5-17c9-4010-877c-36a088988269)
+
