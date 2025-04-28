@@ -20,5 +20,7 @@ Currently implemented:
 Need to implement:
 - High score tracker
 - Power-ups
+
+
 ![Screenshot 2025-04-22 194705](https://github.com/user-attachments/assets/d2a6c9a5-17c9-4010-877c-36a088988269)
 
